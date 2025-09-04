@@ -24,21 +24,9 @@ import { WelcomeMsgInfoCommand } from './commands/welcomeMessages/welcomeMessage
 import { RoleCommand } from './commands/selfAssignableRoles/role.command';
 import { RoleService } from './commands/selfAssignableRoles/role.service';
 import { WhiteListAddCommand } from './commands/selfAssignableRoles/whiteList';
-// import { UnbanCommand } from './commands/ban/unban';
-import { DauGiaCommand } from './commands/auction/auction.command';
-import { DauGiaService } from './commands/auction/auction.service';
-import { Daugia } from './models/daugia.entity';
-import { DauGiaStartCommand } from './commands/auction/auctionStart.command';
-import { ScheduleModule } from '@nestjs/schedule';
-import { DauGiaStartService } from './commands/auction/auctionStart.service';
-import { BillAuction } from './models/billauction.entity';
 import { AccBalanceCommand } from './commands/system/system.command';
-import { ChkCommand } from './commands/admin/chk.command';
-import { ListBillCommand } from './commands/admin/listBill.command';
-import { RutCommand } from './commands/system/rut.command';
-import { MylistCommand } from './commands/mylist/mylist.command';
-import { MylistService } from './commands/mylist/mylist.service';
-
+// import { UnbanCommand } from './commands/ban/unban';
+import { ScheduleModule } from '@nestjs/schedule';
 @Module({
   imports: [
     MulterModule.register({
@@ -46,10 +34,11 @@ import { MylistService } from './commands/mylist/mylist.service';
     }),
     ScheduleModule.forRoot(),
     DiscoveryModule,
-    TypeOrmModule.forFeature([User, WelcomeMessage, Daugia, BillAuction]),
+    TypeOrmModule.forFeature([User, WelcomeMessage]),
     HttpModule,
   ],
   providers: [
+    AccBalanceCommand,
     CommandBase,
     BotGateway,
     ListenerChannelMessage,
@@ -66,17 +55,7 @@ import { MylistService } from './commands/mylist/mylist.service';
     RoleCommand,
     RoleService,
     WhiteListAddCommand,
-    DauGiaService,
     // UnbanCommand,
-    DauGiaCommand,
-    DauGiaStartCommand,
-    DauGiaStartService,
-    AccBalanceCommand,
-    ChkCommand,
-    ListBillCommand,
-    RutCommand,
-    MylistCommand,
-    MylistService,
   ],
   controllers: [],
 })
