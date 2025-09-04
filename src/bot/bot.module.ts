@@ -24,23 +24,13 @@ import { WelcomeMsgInfoCommand } from './commands/welcomeMessages/welcomeMessage
 import { RoleCommand } from './commands/selfAssignableRoles/role.command';
 import { RoleService } from './commands/selfAssignableRoles/role.service';
 import { WhiteListAddCommand } from './commands/selfAssignableRoles/whiteList';
-// import { UnbanCommand } from './commands/ban/unban';
-import { DauGiaCommand } from './commands/auction/auction.command';
-import { DauGiaService } from './commands/auction/auction.service';
-import { Daugia } from './models/daugia.entity';
-import { DauGiaStartCommand } from './commands/auction/auctionStart.command';
-import { ScheduleModule } from '@nestjs/schedule';
-import { DauGiaStartService } from './commands/auction/auctionStart.service';
-import { BillAuction } from './models/billauction.entity';
 import { AccBalanceCommand } from './commands/system/system.command';
-import { ChkCommand } from './commands/admin/chk.command';
-import { ListBillCommand } from './commands/admin/listBill.command';
-import { RutCommand } from './commands/system/rut.command';
-import { MylistCommand } from './commands/mylist/mylist.command';
-import { MylistService } from './commands/mylist/mylist.service';
-import { BauCuaService } from './services/baucua.service';
-import { BauCuaCommand } from './commands/games/baucua.command';
-
+// import { UnbanCommand } from './commands/ban/unban';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AssignCommand } from './commands/random/assign.command';
+import { RandomCommand } from './commands/random/random.command';
+import { ActiveUsersService } from './services/active-users.service';
+import { OnlineCommand } from './commands/random/online.command';
 @Module({
   imports: [
     MulterModule.register({
@@ -48,10 +38,11 @@ import { BauCuaCommand } from './commands/games/baucua.command';
     }),
     ScheduleModule.forRoot(),
     DiscoveryModule,
-    TypeOrmModule.forFeature([User, WelcomeMessage, Daugia, BillAuction]),
+    TypeOrmModule.forFeature([User, WelcomeMessage]),
     HttpModule,
   ],
   providers: [
+    AccBalanceCommand,
     CommandBase,
     BotGateway,
     ListenerChannelMessage,
@@ -65,22 +56,14 @@ import { BauCuaCommand } from './commands/games/baucua.command';
     WelcomeMessageHandler,
     WelcomeMsgCommand,
     WelcomeMsgInfoCommand,
+    ActiveUsersService,
     RoleCommand,
+    AssignCommand,
+    RandomCommand,
+    OnlineCommand,
     RoleService,
     WhiteListAddCommand,
-    DauGiaService,
     // UnbanCommand,
-    DauGiaCommand,
-    DauGiaStartCommand,
-    DauGiaStartService,
-    AccBalanceCommand,
-    ChkCommand,
-    ListBillCommand,
-    RutCommand,
-    MylistCommand,
-    MylistService,
-    BauCuaService,
-    BauCuaCommand,
   ],
   controllers: [],
 })

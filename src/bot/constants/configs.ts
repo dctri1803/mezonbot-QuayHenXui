@@ -39,19 +39,13 @@ export enum EmbebButtonType {
   APPROVE = 'APPROVE',
   REJECT = 'REJECT',
   SAVE = 'SAVE',
-  DAUGIA = 'DAUGIA',
   SUBMITCREATE = 'SUBMITCREATE',
   DELETE = 'DELETE',
-  SELL = 'SELL',
   DONE = 'DONE',
-  BUY = 'BUY',
-  THAMGIA = 'THAMGIA',
-  USERJOIN = 'USERJOIN',
 }
 
 export enum FuncType {
   RUT = 'rut',
-  DAUGIA = 'daugia',
   TRANSACTION = 'transaction',
   ALL = 'all',
 }

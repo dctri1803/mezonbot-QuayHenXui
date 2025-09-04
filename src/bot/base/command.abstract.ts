@@ -10,8 +10,15 @@ export abstract class CommandMessage {
 
   protected async getChannelMessage(message: ChannelMessage) {
     const clan = this.client.clans.get(message.clan_id!);
-    const channel = await clan?.channels.fetch(message.channel_id);
-    return await channel?.messages.fetch(message.message_id!);
+    if (!clan) return null;
+
+    const channel = await clan.channels.fetch(message.channel_id);
+    if (!channel) return null;
+
+    const msg = await channel.messages.fetch(message.message_id!);
+    if (!msg) return null;
+
+    return msg;
   }
 
   abstract execute(
