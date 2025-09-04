@@ -27,6 +27,10 @@ import { WhiteListAddCommand } from './commands/selfAssignableRoles/whiteList';
 import { AccBalanceCommand } from './commands/system/system.command';
 // import { UnbanCommand } from './commands/ban/unban';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AssignCommand } from './commands/random/assign.command';
+import { RandomCommand } from './commands/random/random.command';
+import { ActiveUsersService } from './services/active-users.service';
+import { OnlineCommand } from './commands/random/online.command';
 @Module({
   imports: [
     MulterModule.register({
@@ -52,7 +56,11 @@ import { ScheduleModule } from '@nestjs/schedule';
     WelcomeMessageHandler,
     WelcomeMsgCommand,
     WelcomeMsgInfoCommand,
+    ActiveUsersService,
     RoleCommand,
+    AssignCommand,
+    RandomCommand,
+    OnlineCommand,
     RoleService,
     WhiteListAddCommand,
     // UnbanCommand,

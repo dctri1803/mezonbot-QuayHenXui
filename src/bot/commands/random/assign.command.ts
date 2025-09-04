@@ -47,9 +47,10 @@ export class AssignCommand extends CommandMessage {
             });
         }
 
+        const botId = process.env.BOT_ID;
         const candidates = this.active
             .listActive(channelId, withinMin * 60 * 1000)
-            .filter((id) => id !== message.sender_id);
+            .filter((id) => id !== message.sender_id && id !== botId);
 
         if (candidates.length === 0) {
             const t = `Không thấy ai hoạt động trong ${withinMin} phút gần đây ở phòng này.`;
