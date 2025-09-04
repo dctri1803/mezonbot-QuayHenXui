@@ -31,6 +31,10 @@ import { AssignCommand } from './commands/random/assign.command';
 import { RandomCommand } from './commands/random/random.command';
 import { ActiveUsersService } from './services/active-users.service';
 import { OnlineCommand } from './commands/random/online.command';
+import { InMemoryTokenPort } from './services/token.memory';
+import { BauCuaGameService } from './services/baucua.service';
+import { BauCuaTokenCommand } from './commands/games/baucua.command';
+
 @Module({
   imports: [
     MulterModule.register({
@@ -64,6 +68,10 @@ import { OnlineCommand } from './commands/random/online.command';
     RoleService,
     WhiteListAddCommand,
     // UnbanCommand,
+    AccBalanceCommand,
+    BauCuaGameService,
+    BauCuaTokenCommand,
+    InMemoryTokenPort,    // khi dùng token thật, thay bằng MezonTokenPort
   ],
   controllers: [],
 })
