@@ -38,6 +38,8 @@ import { ListBillCommand } from './commands/admin/listBill.command';
 import { RutCommand } from './commands/system/rut.command';
 import { MylistCommand } from './commands/mylist/mylist.command';
 import { MylistService } from './commands/mylist/mylist.service';
+import { BauCuaService } from './services/baucua.service';
+import { BauCuaCommand } from './commands/games/baucua.command';
 
 @Module({
   imports: [
@@ -77,7 +79,9 @@ import { MylistService } from './commands/mylist/mylist.service';
     RutCommand,
     MylistCommand,
     MylistService,
+    BauCuaService,
+    BauCuaCommand,
   ],
   controllers: [],
 })
-export class BotModule {}
+export class BotModule { }
