@@ -97,7 +97,7 @@ export class ListenerTokenSend extends BaseQueueProcessor<TokenSentEvent> {
       try {
         const dataSendToken = {
           sender_id: botId,
-          sender_name: process.env.BOT_NAME || 'AUCTION-MEZON-BOT',
+          sender_name: process.env.BOT_NAME || 'MEZON-BOT',
           receiver_id: tokenEvent.sender_id as string,
           amount: amount,
         };

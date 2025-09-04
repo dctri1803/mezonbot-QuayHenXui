@@ -25,9 +25,9 @@ export class HelpCommand extends CommandMessage {
       (item) => !hidenCommandList.includes(item),
     );
     const messageContent =
-      'Auction - Help Menu' +
+      'Help Menu' +
       '\n' +
-      '• Auction (' +
+      '• Commands (' +
       allCommandKeys.length +
       ')' +
       '\n' +

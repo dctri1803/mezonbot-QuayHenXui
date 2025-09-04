@@ -15,7 +15,12 @@ export class MezonClientService {
       const result = await this.client.login();
       this.logger.log('authenticated.', result);
     } catch (error) {
-      this.logger.error('error authenticating.', error);
+      if (error instanceof Response) {
+        const text = await error.text?.();
+        this.logger.error('error authenticating. Response:', text);
+      } else {
+        this.logger.error('error authenticating.', error);
+      }
       throw error;
     }
   }
