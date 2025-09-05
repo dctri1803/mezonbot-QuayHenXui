@@ -74,4 +74,4 @@ import { BauCuaTokenCommand } from './commands/games/baucua.command';
   ],
   controllers: [],
 })
-export class BotModule {}
+export class BotModule { }
