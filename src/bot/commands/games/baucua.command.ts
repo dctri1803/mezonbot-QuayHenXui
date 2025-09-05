@@ -2,113 +2,215 @@ import { ChannelMessage, EMarkdownType } from 'mezon-sdk';
 import { Command } from 'src/bot/base/commandRegister.decorator';
 import { CommandMessage } from 'src/bot/base/command.abstract';
 import { MezonClientService } from 'src/mezon/services/mezon-client.service';
-import { BauCuaService, Face, normalizeFace } from 'src/bot/services/baucua.service';
+import { InMemoryTokenPort } from 'src/bot/services/token.memory';
+import { BauCuaGameService, Face, normalizeFace } from 'src/bot/services/baucua.service';
+import { ActiveUsersService } from 'src/bot/services/active-users.service';
+// Nếu muốn dùng token thật, thay import bằng TokenPort thật của bạn:
+// import { MezonTokenPort } from 'src/bot/services/token.mezon';
 
-function parseArgs(args: string[]) {
-  // $baucua <chon...> [--bet=10] [--seed=123] | $baucua score | $baucua help
-  let bet = 10;
-  let seed: number | undefined;
-  const picks: Face[] = [];
-
-  for (const a of args) {
-    if (a.startsWith('--bet=')) {
-      const n = parseInt(a.split('=')[1], 10);
-      if (!isNaN(n) && n > 0) bet = Math.min(n, 1_000_000);
-      continue;
+function parseBetArgs(args: string[]) {
+    // $baucua bet <chon..> --bet=10
+    let bet = 10;
+    const picks: Face[] = [];
+    for (const a of args) {
+        if (a.startsWith('--bet=')) {
+            const n = parseInt(a.split('=')[1], 10);
+            if (!isNaN(n) && n > 0) bet = Math.min(n, 1_000_000);
+        } else {
+            const f = normalizeFace(a);
+            if (f) picks.push(f);
+        }
     }
-    if (a.startsWith('--seed=')) {
-      const n = parseInt(a.split('=')[1], 10);
-      if (!isNaN(n)) seed = n;
-      continue;
-    }
-    const f = normalizeFace(a);
-    if (f) picks.push(f);
-  }
-
-  return { picks, bet, seed };
+    return { picks, bet };
 }
 
-function formatResult(r: [Face, Face, Face]) {
-  const emoji: Record<Face, string> = {
-    bau: '🎍', cua: '🦀', tom: '🦐', ca: '🐟', ga: '🐓', nai: '🦌',
-  };
-  return r.map((f) => `${emoji[f]} ${f}`).join('  |  ');
+function fmtResult(r: [Face, Face, Face]) {
+    const emo: Record<Face, string> = { bau: '🎍', cua: '🦀', tom: '🦐', ca: '🐟', ga: '🐓', nai: '🦌' };
+    return r.map(f => `${emo[f]} ${f}`).join('  |  ');
 }
 
 @Command('baucua')
-export class BauCuaCommand extends CommandMessage {
-  constructor(
-    clientService: MezonClientService,
-    private game: BauCuaService
-  ) {
-    super(clientService);
-  }
+export class BauCuaTokenCommand extends CommandMessage {
+    constructor(
+        clientService: MezonClientService,
+        private game: BauCuaGameService,
+        // Dùng in-memory cho demo; khi dùng token thật, inject port thật thay thế
+        private token: InMemoryTokenPort,
+        private active: ActiveUsersService,
+    ) {
+        super(clientService);
+    }
 
-  async execute(args: string[], message: ChannelMessage) {
-    const messageChannel = await this.getChannelMessage(message);
+    async execute(args: string[], message: ChannelMessage) {
+        const messageChannel = await this.getChannelMessage(message);
+        const sub = (args[0] || '').toLowerCase();
+        const channelId = message.channel_id!;
+        const bankerId = message.sender_id!;
 
-    // quick help
-    const sub = (args[0] || '').toLowerCase();
-    if (sub === 'help') {
-      const t =
-`Cú pháp:
-$ baucua <chon...> [--bet=10] [--seed=123]
-   - <chon>: bau | cua | tom | ca | ga | nai (có thể 1–3 lựa chọn)
+        try {
+            switch (sub) {
+                case 'help': {
+                    const t =
+                        `Bầu Cua dùng token (có nhà cái)
+• $baucua host [--min=10] [--max=1000]  → mở bàn, bạn là nhà cái
+• $baucua bet <chon..> --bet=10        → người chơi đặt (1–3 mặt)
+• $baucua start                        → nhà cái bắt đầu, quay và quyết toán
+• $baucua status                       → xem bàn hiện tại
+• $baucua cancel                       → nhà cái hủy bàn
+• $baucua bal                          → xem số dư của bạn
+
 Ví dụ:
-$ baucua bau --bet=50
-$ baucua tom ca nai --bet=20
-$ baucua score   # xem điểm tích lũy của bạn`;
-      return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-    }
+  $baucua host --min=20 --max=200
+  $baucua bet tom ca --bet=50
+  $baucua start`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
 
-    // show score
-    if (sub === 'score') {
-      const score = this.game.getScore(message.clan_id!, message.channel_id!, message.sender_id!);
-      const t = `Điểm tích lũy của bạn: ${score}`;
-      return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-    }
+                case 'host': {
+                    const min = Number(args.find(a => a.startsWith('--min='))?.split('=')[1] ?? 10);
+                    const max = Number(args.find(a => a.startsWith('--max='))?.split('=')[1] ?? 1000);
+                    this.game.open(channelId, bankerId, { minBet: isFinite(min) ? min : 10, maxBet: isFinite(max) ? max : 1000 });
+                    const name = this.active.getName(message.channel_id!, bankerId) || `<@${bankerId}>`;
+                    const t = `🧧 Mở bàn bầu cua: nhà cái ${name}\nMin bet: ${isFinite(min) ? min : 10} | Max bet: ${isFinite(max) ? max : 1000}\nNgười chơi dùng: $baucua bet <chon..> --bet=...`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
 
-    const { picks, bet, seed } = parseArgs(args);
+                case 'bet': {
+                    const { picks, bet } = parseBetArgs(args.slice(1));
+                    if (picks.length < 1 || picks.length > 3) {
+                        const t = 'Bạn cần chọn 1–3 mặt (bau|cua|tom|ca|ga|nai). Ví dụ: $baucua bet tom ca --bet=20';
+                        return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                    }
+                    await this.game.bet(channelId, bankerId, picks, bet, this.token);
+                    const t = `✅ Đặt cược: ${picks.join(', ')} | Mỗi cửa: ${bet}\nTổng đặt: ${picks.length * bet}\nNhà cái dùng $baucua start để bắt đầu`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
 
-    if (picks.length === 0 || picks.length > 3) {
-      const t = 'Bạn cần chọn 1–3 mặt (bau|cua|tom|ca|ga|nai). Ví dụ: $baucua tom ca --bet=20';
-      return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-    }
-
-    // Guard clan
-    const clan = this.client.clans.get(message.clan_id!);
-    if (!clan) {
-      const t = 'Không lấy được thông tin clan hiện tại.';
-      return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-    }
-
-    // Xổ 3 viên
-    const result = this.game.roll(seed);
-    const settle = this.game.settle(picks, bet, result);
-
-    // Cập nhật điểm tích lũy (net có thể âm/dương)
-    const score = this.game.addScore(
-      message.clan_id!, message.channel_id!, message.sender_id!, settle.net
-    );
-
-    // Render chi tiết
-    const picksStr = picks.join(', ');
-    const resultStr = formatResult(result);
-    const detailLines = settle.details.map((d) => {
-      const sign = d.delta >= 0 ? '+' : '';
-      return `- ${d.pick}: xuất hiện ${d.appear} → ${sign}${d.delta}`;
-    }).join('\n');
-
-    const t =
-`🎲 Bầu Cua Tôm Cá
-Bạn đặt: ${picksStr} | Mỗi cửa: ${bet}
-Kết quả: ${resultStr}
-
-${detailLines}
+                case 'start': {
+                    const result = await this.game.start(channelId, bankerId, this.token);
+                    // Render kết quả
+                    const lines = result.settlements.map(s => {
+                        const sign = s.net >= 0 ? '+' : '';
+                        return `- <@${s.userId}>: ${sign}${s.net}`;
+                    }).join('\n');
+                    const t =
+                        `🎲 Kết quả: ${fmtResult(result.result)}
+Quyết toán (net):
+${lines}
 -------------------------
-Đặt: ${settle.wager} | Thắng: ${settle.win} | Thua: ${settle.lose} | **Net**: ${settle.net >= 0 ? '+' : ''}${settle.net}
-Điểm tích lũy hiện tại: ${score}`;
+💼 Nhà cái: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
 
-    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-  }
+                case 'status': {
+                    const st = this.game.status(channelId);
+                    if (!st) {
+                        const t = 'Chưa có bàn nào. Tạo bằng: $baucua host';
+                        return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                    }
+                    const betLines = st.bets.length
+                        ? st.bets.map(b => `- <@${b.userId}>: ${b.picks.join(', ')} x ${b.bet}`).join('\n')
+                        : '(chưa ai đặt)';
+                    const t =
+                        `Bàn hiện tại
+Nhà cái: <@${st.bankerId}>
+Min: ${st.minBet} | Max: ${st.maxBet} | Trạng thái: ${st.status}
+Cược:
+${betLines}`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
+
+                case 'cancel': {
+                    this.game.cancel(channelId, bankerId);
+                    const t = '❌ Đã hủy bàn.';
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
+
+                case 'bal': {
+                    const bal = await this.token.getBalance(bankerId);
+                    const t = `Số dư của bạn: ${bal}`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
+                case 'help': {
+                    const t =
+                        `BẦU CUA DÙNG TOKEN — LUẬT & CÁCH CHƠI
+
+LỆNH NHANH
+• $baucua host [--min=10] [--max=1000]   → mở bàn, bạn là nhà cái
+• $baucua bet <chon..> --bet=10          → người chơi đặt (1–3 mặt)
+• $baucua start                          → nhà cái bắt đầu, quay & quyết toán
+• $baucua status                         → xem bàn hiện tại
+• $baucua cancel                         → nhà cái hủy bàn chưa bắt đầu
+• $baucua bal                            → xem số dư của bạn
+• $baucua help                           → xem hướng dẫn này
+
+CỬA HỢP LỆ
+• bau | cua | tom | ca | ga | nai  (chấp nhận tiếng Việt có/không dấu)
+
+LUẬT TÍNH TIỀN
+• Ván quay 3 mặt.
+• Mỗi người chơi chọn 1–3 cửa, mức cược mỗi cửa là --bet.
+• Tổng tiền đặt = số cửa × bet.
+• Với mỗi cửa đã chọn:
+  - Nếu xuất hiện k lần trong 3 mặt → NHẬN k × bet.
+  - Nếu không xuất hiện → MẤT bet.
+• Lãi/lỗ của người chơi = (tổng thắng) – (tổng thua).
+• Quyết toán với nhà cái:
+  - Người chơi THẮNG (net > 0): nhà cái → người chơi số token = net.
+  - Người chơi THUA  (net < 0): người chơi → nhà cái số token = |net|.
+• Nhà cái KHÔNG được đặt cược.
+
+ĐIỀU KIỆN BẮT ĐẦU VÁN
+• Phải có 1 nhà cái + ít nhất 1 người chơi đã đặt.
+• Khi bắt đầu, hệ thống kiểm tra người chơi có đủ token để trả tổng tiền đặt.
+• Nhà cái nên đảm bảo có đủ token để chi trả khi nhiều người thắng.
+
+VÍ DỤ
+1) Mở bàn:
+   $baucua host --min=20 --max=500
+2) Người chơi đặt:
+   $baucua bet tom ca --bet=50
+3) Nhà cái bắt đầu:
+   $baucua start
+
+GHI CHÚ
+• --min/--max: giới hạn mức bet mỗi cửa của người chơi.
+• Số dư: $baucua bal
+• Nếu dùng bản in-memory, số dư chỉ phục vụ test (mất khi restart).
+• Lỗi thường gặp:
+  - ROUND_ALREADY_OPEN: đã có bàn mở.
+  - NO_ROUND: chưa có bàn trong kênh.
+  - ONLY_BANKER: chỉ nhà cái mới được phép.
+  - NO_PLAYER: chưa có người chơi nào đặt.
+  - PICK_1_TO_3: phải chọn 1–3 cửa.
+  - BET_OUT_OF_RANGE: bet ngoài min/max.
+  - INSUFFICIENT_FUNDS: không đủ token.`;
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
+
+                default: {
+                    // Gợi ý nhanh
+                    const t = 'Dùng $baucua help để xem hướng dẫn.\nPhổ biến: $baucua host | $baucua bet tom ca --bet=20 | $baucua start';
+                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                }
+            }
+        } catch (e: any) {
+            const msg = String(e?.message || e);
+            const map: Record<string, string> = {
+                ROUND_ALREADY_OPEN: 'Đang có bàn mở rồi.',
+                NO_ROUND: 'Chưa có bàn trong kênh.',
+                ONLY_BANKER: 'Chỉ nhà cái mới được thực hiện.',
+                NO_PLAYER: 'Cần ít nhất 1 người chơi mới bắt đầu.',
+                ROUND_LOCKED: 'Bàn đã khoá, không thể đặt thêm.',
+                BANKER_CANNOT_BET: 'Nhà cái không được đặt cược.',
+                PICK_1_TO_3: 'Bạn phải chọn 1–3 mặt.',
+                BET_OUT_OF_RANGE: 'Mức cược nằm ngoài min/max của bàn.',
+                INSUFFICIENT_FUNDS: 'Bạn không đủ token để đặt.',
+            };
+            const t = map[msg] || (msg.startsWith('PLAYER_INSUFFICIENT')
+                ? `Một người chơi không đủ token để tham gia (userId=${msg.split(':')[1]})`
+                : `Lỗi: ${msg}`);
+            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+        }
+    }
 }

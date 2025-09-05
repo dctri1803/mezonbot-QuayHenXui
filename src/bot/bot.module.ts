@@ -28,8 +28,9 @@ import { AssignCommand } from './commands/random/assign.command';
 import { RandomCommand } from './commands/random/random.command';
 import { ActiveUsersService } from './services/active-users.service';
 import { OnlineCommand } from './commands/random/online.command';
-import { BauCuaService } from './services/baucua.service';
-import { BauCuaCommand } from './commands/games/baucua.command';
+import { InMemoryTokenPort } from './services/token.memory';
+import { BauCuaGameService } from './services/baucua.service';
+import { BauCuaTokenCommand } from './commands/games/baucua.command';
 
 @Module({
   imports: [
@@ -65,8 +66,11 @@ import { BauCuaCommand } from './commands/games/baucua.command';
     WhiteListAddCommand,
     // UnbanCommand,
     AccBalanceCommand,
-    BauCuaService,
-    BauCuaCommand,
+    BauCuaGameService,
+    BauCuaTokenCommand,
+    BauCuaGameService,
+    BauCuaTokenCommand,
+    InMemoryTokenPort,    // khi dùng token thật, thay bằng MezonTokenPort
   ],
   controllers: [],
 })
