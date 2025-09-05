@@ -1,9 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { MulterModule } from '@nestjs/platform-express';
-
 import { TypeOrmModule } from '@nestjs/typeorm';
-
 import { ConfigService } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
 import { User } from './models/user.entity';
@@ -14,7 +12,6 @@ import { BotGateway } from './events/bot.gateways';
 import { ListenerChannelMessage } from './listeners/onChannelMessage.listener';
 import { CommandBase } from './base/command.handle';
 import { AvatarCommand } from './commands/avatar/avatar.command';
-
 import { ListenerMessageButtonClicked } from './listeners/onMessageButtonClicked.listener';
 import { ListenerTokenSend } from './listeners/tokensend.handle';
 import { WelcomeMessageHandler } from './listeners/welcomeMessages';
@@ -31,6 +28,9 @@ import { AssignCommand } from './commands/random/assign.command';
 import { RandomCommand } from './commands/random/random.command';
 import { ActiveUsersService } from './services/active-users.service';
 import { OnlineCommand } from './commands/random/online.command';
+import { BauCuaService } from './services/baucua.service';
+import { BauCuaCommand } from './commands/games/baucua.command';
+
 @Module({
   imports: [
     MulterModule.register({
@@ -64,6 +64,9 @@ import { OnlineCommand } from './commands/random/online.command';
     RoleService,
     WhiteListAddCommand,
     // UnbanCommand,
+    AccBalanceCommand,
+    BauCuaService,
+    BauCuaCommand,
   ],
   controllers: [],
 })
