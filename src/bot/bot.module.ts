@@ -1,9 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { MulterModule } from '@nestjs/platform-express';
-
 import { TypeOrmModule } from '@nestjs/typeorm';
-
 import { ConfigService } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
 import { User } from './models/user.entity';
@@ -14,7 +12,6 @@ import { BotGateway } from './events/bot.gateways';
 import { ListenerChannelMessage } from './listeners/onChannelMessage.listener';
 import { CommandBase } from './base/command.handle';
 import { AvatarCommand } from './commands/avatar/avatar.command';
-
 import { ListenerMessageButtonClicked } from './listeners/onMessageButtonClicked.listener';
 import { ListenerTokenSend } from './listeners/tokensend.handle';
 import { WelcomeMessageHandler } from './listeners/welcomeMessages';
