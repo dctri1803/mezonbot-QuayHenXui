@@ -69,7 +69,7 @@ import { DbTokenPort } from './services/token.memory';
     AccBalanceCommand,
     BauCuaGameService,
     BauCuaTokenCommand,
-    DbTokenPort,    // khi dùng token thật, thay bằng MezonTokenPort
+    DbTokenPort,
     RutCommand,
   ],
   controllers: [],
