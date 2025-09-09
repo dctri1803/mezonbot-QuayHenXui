@@ -31,6 +31,7 @@ import { OnlineCommand } from './commands/random/online.command';
 import { InMemoryTokenPort } from './services/token.memory';
 import { BauCuaGameService } from './services/baucua.service';
 import { BauCuaTokenCommand } from './commands/games/baucua.command';
+import { RutCommand } from './commands/system/rut.command';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { BauCuaTokenCommand } from './commands/games/baucua.command';
     BauCuaGameService,
     BauCuaTokenCommand,
     InMemoryTokenPort,    // khi dùng token thật, thay bằng MezonTokenPort
+    RutCommand,
   ],
   controllers: [],
 })
