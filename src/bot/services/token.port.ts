@@ -1,10 +1,5 @@
 export interface TokenPort {
-  /** Lấy số dư của user */
-  getBalance(userId: string): Promise<number>;
-
-  /**
-   * Chuyển token từ from → to (amount > 0).
-   * Yêu cầu: throw lỗi nếu không đủ tiền hoặc chuyển thất bại.
-   */
-  transfer(fromUserId: string, toUserId: string, amount: number, memo?: string): Promise<void>;
+  getBalance(userId: string, amount?: number): Promise<number>;
+  transfer(from: string, to: string, amount: number, memo?: string): Promise<void>;
+  syncBalance(userId: string, amount: number): Promise<void>;
 }
