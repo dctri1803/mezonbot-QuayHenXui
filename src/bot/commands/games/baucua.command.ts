@@ -5,8 +5,6 @@ import { MezonClientService } from 'src/mezon/services/mezon-client.service';
 import { DbTokenPort } from 'src/bot/services/token.memory';
 import { BauCuaGameService, Face, normalizeFace } from 'src/bot/services/baucua.service';
 import { ActiveUsersService } from 'src/bot/services/active-users.service';
-// Nếu muốn dùng token thật, thay import bằng TokenPort thật của bạn:
-// import { MezonTokenPort } from 'src/bot/services/token.mezon';
 
 function parseBetArgs(args: string[]) {
     // $baucua bet <chon..> --bet=10
@@ -15,7 +13,9 @@ function parseBetArgs(args: string[]) {
     for (const a of args) {
         if (a.startsWith('--bet=')) {
             const n = parseInt(a.split('=')[1], 10);
-            if (!isNaN(n) && n > 0) bet = Math.min(n, 1_000_000);
+            if (!isNaN(n) && n > 0) {
+                bet = Math.min(n, 100_000_000);
+            }
         } else {
             const f = normalizeFace(a);
             if (f) picks.push(f);
@@ -29,12 +29,15 @@ function fmtResult(r: [Face, Face, Face]) {
     return r.map(f => `${emo[f]} ${f}`).join('  |  ');
 }
 
+function fmtUserTag(id: string, name?: string) {
+    return name ? `${name}` : `<@${id}>`;
+}
+
 @Command('baucua')
 export class BauCuaTokenCommand extends CommandMessage {
     constructor(
         clientService: MezonClientService,
         private game: BauCuaGameService,
-        // Dùng in-memory cho demo; khi dùng token thật, inject port thật thay thế
         private token: DbTokenPort,
         private active: ActiveUsersService,
     ) {
@@ -85,7 +88,7 @@ LUẬT TÍNH TIỀN
 
 VÍ DỤ
 1) Mở bàn:
-   $baucua host --min=20 --max=500
+   $baucua host --min=20 --max=500 --maxPlayers=10
 2) Người chơi đặt:
    $baucua bet tom ca --bet=50
 3) Nhà cái bắt đầu:
@@ -101,15 +104,26 @@ GHI CHÚ
   - NO_PLAYER: chưa có người chơi nào đặt.
   - PICK_1_TO_3: phải chọn 1–3 cửa.
   - BET_OUT_OF_RANGE: bet ngoài min/max.
-  - INSUFFICIENT_FUNDS: không đủ token.`;
+  - INSUFFICIENT_FUNDS: không đủ token.
+  - BANKER_INSUFFICIENT_FUNDS: 'Nhà cái không đủ token để chi trả.
+  - PLAYER_INSUFFICIENT: Một người chơi không đủ token để tham gia.
+  - MAX_PLAYERS_REACHED: Bàn đã đủ số người chơi tối đa.`;
                     return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                 }
                 case 'host': {
                     const min = Number(args.find(a => a.startsWith('--min='))?.split('=')[1] ?? 10);
                     const max = Number(args.find(a => a.startsWith('--max='))?.split('=')[1] ?? 1000);
-                    this.game.open(channelId, bankerId, { minBet: isFinite(min) ? min : 10, maxBet: isFinite(max) ? max : 1000 });
-                    const name = this.active.getName(message.channel_id!, bankerId) || `<@${bankerId}>`;
-                    const t = `🧧 Mở bàn bầu cua: nhà cái ${name}\nMin bet: ${isFinite(min) ? min : 10} | Max bet: ${isFinite(max) ? max : 1000}\nNgười chơi dùng: $baucua bet <chon..> --bet=...`;
+                    const mp = Number(args.find(a => a.startsWith('--maxPlayers='))?.split('=')[1] ?? 10); // NEW
+                    this.game.open(channelId, bankerId, {
+                        minBet: isFinite(min) ? min : 10,
+                        maxBet: isFinite(max) ? max : 1000,
+                        maxPlayers: isFinite(mp) ? Math.max(1, mp) : 10,                                       // NEW
+                    });
+
+                    const name = await this.active.getNameOrFetch(channelId, bankerId) || `<@${bankerId}>`;
+                    const t = `🧧 Mở bàn bầu cua: nhà cái ${name}
+Min bet: ${isFinite(min) ? min : 10} | Max bet: ${isFinite(max) ? max : 1000} | Max players: ${isFinite(mp) ? Math.max(1, mp) : 10}
+Người chơi dùng: $baucua bet <chon..> --bet=...`;
                     return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                 }
 
@@ -127,17 +141,20 @@ GHI CHÚ
 
                 case 'start': {
                     const result = await this.game.start(channelId, bankerId, this.token);
-                    // Render kết quả
-                    const lines = result.settlements.map(s => {
+
+                    const lines = (await Promise.all(result.settlements.map(async s => {
+                        const n = await this.active.getNameOrFetch(channelId, s.userId);
                         const sign = s.net >= 0 ? '+' : '';
-                        return `- <@${s.userId}>: ${sign}${s.net}`;
-                    }).join('\n');
+                        return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
+                    }))).join('\n');
+
+                    const bankerName = await this.active.getNameOrFetch(channelId, bankerId);
                     const t =
                         `🎲 Kết quả: ${fmtResult(result.result)}
 Quyết toán (net):
 ${lines}
 -------------------------
-💼 Nhà cái: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
+💼 Nhà cái ${fmtUserTag(bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
                     return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                 }
 
@@ -147,13 +164,19 @@ ${lines}
                         const t = 'Chưa có bàn nào. Tạo bằng: $baucua host';
                         return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                     }
+                    const bankerName = await this.active.getNameOrFetch(channelId, st.bankerId);
                     const betLines = st.bets.length
-                        ? st.bets.map(b => `- <@${b.userId}>: ${b.picks.join(', ')} x ${b.bet}`).join('\n')
+                        ? (await Promise.all(st.bets.map(async b => {
+                            const n = await this.active.getNameOrFetch(channelId, b.userId);
+                            return `- ${n ?? `<@${b.userId}>`}: ${b.picks.join(', ')} x ${b.bet}`;
+                        }))).join('\n')
                         : '(chưa ai đặt)';
                     const t =
                         `Bàn hiện tại
-Nhà cái: <@${st.bankerId}>
-Min: ${st.minBet} | Max: ${st.maxBet} | Trạng thái: ${st.status}
+Nhà cái: ${bankerName ?? `<@${st.bankerId}>`}
+Min: ${st.minBet} | Max: ${st.maxBet} | Max players: ${st.maxPlayers}
+Trạng thái: ${st.status}
+Số người chơi: ${st.bets.length}/${st.maxPlayers}
 Cược:
 ${betLines}`;
                     return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
@@ -189,6 +212,8 @@ ${betLines}`;
                 BET_OUT_OF_RANGE: 'Mức cược nằm ngoài min/max của bàn.',
                 INSUFFICIENT_FUNDS: 'Bạn không đủ token để đặt.',
                 BANKER_INSUFFICIENT_FUNDS: 'Nhà cái không đủ token để chi trả.',
+                PLAYER_INSUFFICIENT: 'Người chơi không đủ token để tham gia.',
+                MAX_PLAYERS_REACHED: 'Bàn đã đủ số người chơi tối đa.',
             };
             const t = map[msg] || (msg.startsWith('PLAYER_INSUFFICIENT')
                 ? `Một người chơi không đủ token để tham gia (userId=${msg.split(':')[1]})`

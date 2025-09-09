@@ -47,6 +47,7 @@ type RoundState = {
   bankerId: string;
   minBet: number;
   maxBet: number;
+  maxPlayers: number;
   status: RoundStatus;
   bets: Map<string, Bet>; // userId -> bet
 };
@@ -56,15 +57,21 @@ export class BauCuaGameService {
   /** channelId -> round */
   private rounds = new Map<string, RoundState>();
 
-  open(channelId: string, bankerId: string, opts?: { minBet?: number; maxBet?: number }) {
+  open(
+    channelId: string,
+    bankerId: string,
+    opts?: { minBet?: number; maxBet?: number; maxPlayers?: number }
+  ) {
     const exist = this.rounds.get(channelId);
     if (exist && exist.status === 'OPEN') throw new Error('ROUND_ALREADY_OPEN');
-    const minBet = Math.max(1, opts?.minBet ?? 10);
-    const maxBet = Math.max(minBet, opts?.maxBet ?? 1000);
+    const minBet = Math.max(1, opts?.minBet ?? 1000);
+    const maxBet = Math.max(minBet, opts?.maxBet ?? 100000);
+    const maxPlayers = Math.max(1, opts?.maxPlayers ?? 10);
     this.rounds.set(channelId, {
       bankerId,
       minBet,
       maxBet,
+      maxPlayers,
       status: 'OPEN',
       bets: new Map(),
     });
@@ -77,15 +84,25 @@ export class BauCuaGameService {
     this.rounds.delete(channelId);
   }
 
-  status(channelId: string) {
+  status(channelId: string): {
+    bankerId: string;
+    minBet: number;
+    maxBet: number;
+    maxPlayers: number;
+    status: RoundStatus;
+    bets: { userId: string; picks: Face[]; bet: number }[];
+  } | null {
     const r = this.rounds.get(channelId);
     if (!r) return null;
     return {
       bankerId: r.bankerId,
       minBet: r.minBet,
       maxBet: r.maxBet,
+      maxPlayers: r.maxPlayers, // 👈 thêm
       status: r.status,
-      bets: Array.from(r.bets.values()).map(b => ({ userId: b.userId, picks: b.picks, bet: b.bet })),
+      bets: Array.from(r.bets.values()).map(b => ({
+        userId: b.userId, picks: b.picks, bet: b.bet,
+      })),
     };
   }
 
@@ -96,11 +113,15 @@ export class BauCuaGameService {
     if (picks.length < 1 || picks.length > 3) throw new Error('PICK_1_TO_3');
     if (!Number.isFinite(bet) || bet < r.minBet || bet > r.maxBet) throw new Error('BET_OUT_OF_RANGE');
 
-    // Check đủ tiền trước (tổng cược = picks.length * bet)
+    const already = r.bets.has(userId);
+    if (!already && r.bets.size >= r.maxPlayers) {
+      throw new Error('MAX_PLAYERS_REACHED');
+    }
+
     const need = picks.length * bet;
     return token.getBalance(userId).then(bal => {
       if (bal < need) throw new Error('INSUFFICIENT_FUNDS');
-      r.bets.set(userId, { userId, picks, bet }); // ghi đè bet cũ nếu có
+      r.bets.set(userId, { userId, picks, bet });
       return { ok: true };
     });
   }
@@ -158,7 +179,7 @@ export class BauCuaGameService {
       this.rounds.delete(channelId);
       return { result, settlements, bankerDelta };
     } catch (err) {
-      r.status = 'OPEN'; // mở lại để xử lý tiếp (hoặc tuỳ bạn: this.rounds.delete(channelId))
+      r.status = 'OPEN';
       throw err;
     }
   }
