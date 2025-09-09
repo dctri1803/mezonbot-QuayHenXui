@@ -28,9 +28,10 @@ import { AssignCommand } from './commands/random/assign.command';
 import { RandomCommand } from './commands/random/random.command';
 import { ActiveUsersService } from './services/active-users.service';
 import { OnlineCommand } from './commands/random/online.command';
-import { InMemoryTokenPort } from './services/token.memory';
 import { BauCuaGameService } from './services/baucua.service';
 import { BauCuaTokenCommand } from './commands/games/baucua.command';
+import { RutCommand } from './commands/system/rut.command';
+import { DbTokenPort } from './services/token.memory';
 
 @Module({
   imports: [
@@ -68,9 +69,8 @@ import { BauCuaTokenCommand } from './commands/games/baucua.command';
     AccBalanceCommand,
     BauCuaGameService,
     BauCuaTokenCommand,
-    BauCuaGameService,
-    BauCuaTokenCommand,
-    InMemoryTokenPort,    // khi dùng token thật, thay bằng MezonTokenPort
+    DbTokenPort,
+    RutCommand,
   ],
   controllers: [],
 })
