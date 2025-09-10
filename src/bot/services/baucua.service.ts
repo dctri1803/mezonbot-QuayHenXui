@@ -98,7 +98,7 @@ export class BauCuaGameService {
       bankerId: r.bankerId,
       minBet: r.minBet,
       maxBet: r.maxBet,
-      maxPlayers: r.maxPlayers, // 👈 thêm
+      maxPlayers: r.maxPlayers,
       status: r.status,
       bets: Array.from(r.bets.values()).map(b => ({
         userId: b.userId, picks: b.picks, bet: b.bet,
