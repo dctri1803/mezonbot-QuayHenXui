@@ -27,20 +27,24 @@ export function roll(seed?: number): [Face, Face, Face] {
   return [pick(), pick(), pick()];
 }
 
-export function settle(picks: Face[], betUnit: number, result: [Face, Face, Face]) {
+export function settleVar(wagers: { pick: Face; bet: number }[], result: [Face, Face, Face]) {
   const counts: Record<Face, number> = { bau: 0, cua: 0, tom: 0, ca: 0, ga: 0, nai: 0 };
   result.forEach(f => counts[f]++);
-  let win = 0, lose = 0;
-  const details = picks.map(p => {
-    const appear = counts[p] || 0;
-    const delta = appear > 0 ? appear * betUnit : -betUnit;
+
+  let win = 0, lose = 0, wager = 0;
+  const details = wagers.map(({ pick, bet }) => {
+    wager += bet;
+    const appear = counts[pick] || 0;
+    const delta = appear > 0 ? appear * bet : -bet;
     if (delta > 0) win += delta; else lose += -delta;
-    return { pick: p, appear, delta };
+    return { pick, bet, appear, delta };
   });
-  return { wager: picks.length * betUnit, win, lose, net: win - lose, details, counts };
+
+  return { wager, win, lose, net: win - lose, details, counts };
 }
 
-type Bet = { userId: string; picks: Face[]; bet: number };
+type Wager = { pick: Face; bet: number };
+type Bet = { userId: string; wagers: Wager[] };
 type RoundStatus = 'OPEN' | 'LOCKED';
 
 type RoundState = {
@@ -49,7 +53,7 @@ type RoundState = {
   maxBet: number;
   maxPlayers: number;
   status: RoundStatus;
-  bets: Map<string, Bet>; // userId -> bet
+  bets: Map<string, Bet>;
 };
 
 @Injectable()
@@ -90,7 +94,7 @@ export class BauCuaGameService {
     maxBet: number;
     maxPlayers: number;
     status: RoundStatus;
-    bets: { userId: string; picks: Face[]; bet: number }[];
+    bets: { userId: string; wagers: { pick: Face; bet: number }[] }[];
   } | null {
     const r = this.rounds.get(channelId);
     if (!r) return null;
@@ -101,29 +105,46 @@ export class BauCuaGameService {
       maxPlayers: r.maxPlayers,
       status: r.status,
       bets: Array.from(r.bets.values()).map(b => ({
-        userId: b.userId, picks: b.picks, bet: b.bet,
+        userId: b.userId,
+        wagers: b.wagers,
       })),
     };
   }
 
-  bet(channelId: string, userId: string, picks: Face[], bet: number, token: TokenPort) {
+  async bet(
+    channelId: string,
+    userId: string,
+    wagers: { pick: Face; bet: number }[],
+    token: TokenPort
+  ) {
     const r = this.mustRound(channelId);
     if (r.status !== 'OPEN') throw new Error('ROUND_LOCKED');
     if (userId === r.bankerId) throw new Error('BANKER_CANNOT_BET');
-    if (picks.length < 1 || picks.length > 3) throw new Error('PICK_1_TO_3');
-    if (!Number.isFinite(bet) || bet < r.minBet || bet > r.maxBet) throw new Error('BET_OUT_OF_RANGE');
 
-    const already = r.bets.has(userId);
-    if (!already && r.bets.size >= r.maxPlayers) {
-      throw new Error('MAX_PLAYERS_REACHED');
+    // gộp trùng mặt nếu có
+    const merged = new Map<Face, number>();
+    for (const w of wagers) {
+      if (!Number.isFinite(w.bet)) throw new Error('BET_OUT_OF_RANGE');
+      merged.set(w.pick, (merged.get(w.pick) ?? 0) + w.bet);
+    }
+    const distinct = Array.from(merged, ([pick, bet]) => ({ pick, bet }));
+
+    if (distinct.length < 1 || distinct.length > 3) throw new Error('PICK_1_TO_3');
+
+    // kiểm tra min/max cho từng cửa
+    for (const w of distinct) {
+      if (w.bet < r.minBet || w.bet > r.maxBet) throw new Error('BET_OUT_OF_RANGE');
     }
 
-    const need = picks.length * bet;
-    return token.getBalance(userId).then(bal => {
-      if (bal < need) throw new Error('INSUFFICIENT_FUNDS');
-      r.bets.set(userId, { userId, picks, bet });
-      return { ok: true };
-    });
+    const already = r.bets.has(userId);
+    if (!already && r.bets.size >= r.maxPlayers) throw new Error('MAX_PLAYERS_REACHED');
+
+    const need = distinct.reduce((s, w) => s + w.bet, 0);
+    const bal = await token.getBalance(userId);
+    if (bal < need) throw new Error('INSUFFICIENT_FUNDS');
+
+    r.bets.set(userId, { userId, wagers: distinct });
+    return { ok: true };
   }
 
   async start(channelId: string, bankerId: string, token: TokenPort, seed?: number) {
@@ -135,38 +156,42 @@ export class BauCuaGameService {
     const players = Array.from(r.bets.values());
 
     try {
-      // 1) Player must afford worst-case loss = picks.length * bet
+      // 1) người chơi phải đủ tiền tổng đặt
       for (const b of players) {
-        const need = b.picks.length * b.bet;
+        const need = b.wagers.reduce((s, w) => s + w.bet, 0);
         const bal = await token.getBalance(b.userId);
         if (bal < need) throw new Error(`PLAYER_INSUFFICIENT:${b.userId}`);
       }
 
-      // 2) Banker must afford worst-case liability BEFORE rolling: sum(3 * bet)
-      const maxLiability = players.reduce((s, p) => s + 3 * p.bet, 0);
+      // 2) nhà cái phải đủ "worst-case" (bảo thủ): 3 * sum(bet_i) cho mỗi người
+      const maxLiability = players.reduce(
+        (s, p) => s + 3 * p.wagers.reduce((t, w) => t + w.bet, 0),
+        0
+      );
       const bankerBalPre = await token.getBalance(bankerId);
       if (bankerBalPre < maxLiability) throw new Error('BANKER_INSUFFICIENT_FUNDS');
 
-      // 3) Roll result
+      // 3) quay
       const result = roll(seed);
 
-      // 4) Compute settlements
+      // 4) quyết toán
       let bankerDelta = 0;
       const settlements: Array<{ userId: string; net: number; detail: any }> = [];
+
       for (const b of players) {
-        const st = settle(b.picks, b.bet, result);
+        const st = settleVar(b.wagers, result);
         settlements.push({ userId: b.userId, net: st.net, detail: st });
-        bankerDelta -= st.net; // banker chịu ngược chiều người chơi
+        bankerDelta -= st.net;
       }
 
-      // 5) (optional but nice) check actual payout is still covered
+      // 5) nhà cái còn cover nổi payout thực tế không
       const totalPayout = settlements.reduce((s, x) => s + (x.net > 0 ? x.net : 0), 0);
       if (totalPayout > 0) {
         const bankerBalNow = await token.getBalance(bankerId);
         if (bankerBalNow < totalPayout) throw new Error('BANKER_INSUFFICIENT_FUNDS');
       }
 
-      // 6) Transfers
+      // 6) chuyển tiền
       for (const s of settlements) {
         if (s.net > 0) {
           await token.transfer(bankerId, s.userId, s.net, 'BauCua: player win');
@@ -175,7 +200,6 @@ export class BauCuaGameService {
         }
       }
 
-      // 7) Close round
       this.rounds.delete(channelId);
       return { result, settlements, bankerDelta };
     } catch (err) {
