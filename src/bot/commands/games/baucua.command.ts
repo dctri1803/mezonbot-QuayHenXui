@@ -6,21 +6,43 @@ import { DbTokenPort } from 'src/bot/services/token.memory';
 import { BauCuaGameService, Face, normalizeFace } from 'src/bot/services/baucua.service';
 import { ActiveUsersService } from 'src/bot/services/active-users.service';
 
-function parseBetArgs(args: string[]) {
-    let bet = 1000;
+type ParsedBet =
+    | { mode: 'uniform'; picks: Face[]; bet: number }
+    | { mode: 'per-face'; wagers: { pick: Face; bet: number }[] };
+
+function parseBetArgs(args: string[]): ParsedBet {
+    const CAP = 100_000_000;
+    let uniformBet: number | null = null;
     const picks: Face[] = [];
+    const perFace = new Map<Face, number>();
+
     for (const a of args) {
         if (a.startsWith('--bet=')) {
             const n = parseInt(a.split('=')[1], 10);
-            if (!isNaN(n) && n > 0) {
-                bet = Math.min(n, 100_000_000);
-            }
-        } else {
-            const f = normalizeFace(a);
-            if (f) picks.push(f);
+            if (!isNaN(n) && n > 0) uniformBet = Math.min(n, CAP);
+            continue;
         }
+
+        const m = a.match(/^(.+?)\s*[:=]\s*(\d+)$/);
+        if (m) {
+            const f = normalizeFace(m[1]);
+            const n = parseInt(m[2], 10);
+            if (f && !isNaN(n) && n > 0) {
+                perFace.set(f, Math.min(n, CAP));
+                continue;
+            }
+        }
+
+        const f = normalizeFace(a);
+        if (f) picks.push(f);
     }
-    return { picks, bet };
+
+    if (perFace.size > 0) {
+        const wagers = Array.from(perFace, ([pick, bet]) => ({ pick, bet }));
+        return { mode: 'per-face', wagers };
+    }
+
+    return { mode: 'uniform', picks, bet: uniformBet ?? 1000 };
 }
 
 function fmtResult(r: [Face, Face, Face]) {
@@ -56,10 +78,12 @@ export class BauCuaTokenCommand extends CommandMessage {
                         `BẦU CUA DÙNG TOKEN — LUẬT & CÁCH CHƠI
 
 LỆNH NHANH
-• $baucua host [--min=1000] [--max=100000] [--maxPlayers=10]    
+• $baucua host --min=1000 --max=100000 --maxPlayers=10
 → mở bàn, bạn là nhà cái
-• $baucua bet <chon..> --bet=1000                               
-→ người chơi đặt (1–3 mặt)
+• $baucua bet tom:2000 ca:500                   
+→ đặt mỗi cửa một mức tiền (per-face)
+• $baucua bet tom ca --bet=1000                 
+→ đặt đều mỗi cửa 1000→ người chơi đặt (1–3 mặt)
 • $baucua start                                                 
 → nhà cái bắt đầu, quay & quyết toán
 • $baucua status                                                
@@ -96,7 +120,8 @@ VÍ DỤ
 1) Mở bàn:
    $baucua host --min=1000 --max=100000 --maxPlayers=10
 2) Người chơi đặt:
-   $baucua bet tom ca --bet=1000
+   $baucua bet tom:2000 ca:500                   → đặt mỗi cửa một mức tiền
+   $baucua bet tom ca --bet=1000                 → đặt đều mỗi cửa 1000
 3) Nhà cái bắt đầu:
    $baucua start
 
@@ -129,20 +154,41 @@ GHI CHÚ
                     const name = await this.active.getNameOrFetch(channelId, bankerId) || `<@${bankerId}>`;
                     const t = `🧧 Mở bàn bầu cua: nhà cái ${name}
 Min bet: ${isFinite(min) ? min : 1000} | Max bet: ${isFinite(max) ? max : 100000} | Max players: ${isFinite(mp) ? Math.max(1, mp) : 10}
-Người chơi dùng: $baucua bet <chon..> --bet=...`;
+Người chơi dùng: $baucua bet ca --bet=1000
+                             $baucua bet tom:2000 ca:500`;
                     return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                 }
 
                 case 'bet': {
                     const userId = message.sender_id!;
-                    const { picks, bet } = parseBetArgs(args.slice(1));
-                    if (picks.length < 1 || picks.length > 3) {
-                        const t = 'Bạn cần chọn 1–3 mặt (bau|cua|tom|ca|ga|nai). Ví dụ: $baucua bet tom ca --bet=1000';
+                    const parsed = parseBetArgs(args.slice(1));
+
+                    if (parsed.mode === 'uniform') {
+                        if (parsed.picks.length < 1 || parsed.picks.length > 3) {
+                            const t = `Bạn cần chọn 1–3 mặt (bau: '🎍'| cua: '🦀'| tom: '🦐'| ca: '🐟'| ga: '🐓'| nai: '🦌').
+Ví dụ:  $baucua bet tom ca --bet=1000.
+           $baucua bet tom:2000 ca:500.`;
+                            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                        }
+                        const wagers = parsed.picks.map(pick => ({ pick, bet: parsed.bet }));
+                        await this.game.bet(channelId, userId, wagers, this.token);
+
+                        const total = wagers.reduce((s, w) => s + w.bet, 0);
+                        const desc = wagers.map(w => `${w.pick} x ${w.bet}`).join(', ');
+                        const t = `✅ Đặt cược: ${desc}\nTổng đặt: ${total}\nNhà cái dùng $baucua start để bắt đầu`;
+                        return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                    } else {
+                        if (parsed.wagers.length < 1 || parsed.wagers.length > 3) {
+                            const t = 'Bạn cần chọn 1–3 mặt. Ví dụ: $baucua bet tom:2000 ca:500';
+                            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+                        }
+                        await this.game.bet(channelId, userId, parsed.wagers, this.token);
+
+                        const total = parsed.wagers.reduce((s, w) => s + w.bet, 0);
+                        const desc = parsed.wagers.map(w => `${w.pick} x ${w.bet}`).join(', ');
+                        const t = `✅ Đặt cược: ${desc}\nTổng đặt: ${total}\nNhà cái dùng $baucua start để bắt đầu`;
                         return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                     }
-                    await this.game.bet(channelId, userId, picks, bet, this.token);
-                    const t = `✅ Đặt cược: ${picks.join(', ')} | Mỗi cửa: ${bet}\nTổng đặt: ${picks.length * bet}\nNhà cái dùng $baucua start để bắt đầu`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
                 }
 
                 case 'start': {
@@ -174,9 +220,11 @@ ${lines}
                     const betLines = st.bets.length
                         ? (await Promise.all(st.bets.map(async b => {
                             const n = await this.active.getNameOrFetch(channelId, b.userId);
-                            return `- ${n ?? `<@${b.userId}>`}: ${b.picks.join(', ')} x ${b.bet}`;
+                            const desc = b.wagers.map(w => `${w.pick} x ${w.bet}`).join(', ');
+                            return `- ${n ?? `<@${b.userId}>`}: ${desc}`;
                         }))).join('\n')
                         : '(chưa ai đặt)';
+
                     const t =
                         `Bàn hiện tại
 Nhà cái: ${bankerName ?? `<@${st.bankerId}>`}
