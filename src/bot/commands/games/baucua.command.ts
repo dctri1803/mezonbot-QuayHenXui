@@ -1,4 +1,4 @@
-import { ChannelMessage, EMarkdownType } from 'mezon-sdk';
+import { ChannelMessage, EMarkdownType, EMessageComponentType } from 'mezon-sdk';
 import { Command } from 'src/bot/base/commandRegister.decorator';
 import { CommandMessage } from 'src/bot/base/command.abstract';
 import { MezonClientService } from 'src/mezon/services/mezon-client.service';
@@ -53,6 +53,121 @@ function fmtResult(r: [Face, Face, Face]) {
 function fmtUserTag(id: string, name?: string) {
     return name ? `${name}` : `<@${id}>`;
 }
+
+const BAUCUA_SPRITESHEET = 'https://raw.githubusercontent.com/dctri1803/baucua-assets/main/baucua_draw_spritesheet.png';
+// "https://cdn.mezon.ai/0/1834156727516270592/1805415525119955000/1751356942745_1slots.png"
+const BAUCUA_POSITIONS = 'https://raw.githubusercontent.com/dctri1803/baucua-assets/main/baucua_chibi_positions.json';
+// "https://cdn.mezon.ai/0/1834156727516270592/1827994776956309500/1751357108975_slots.json"
+
+// Thứ tự frame trong spritesheet (tùy bạn vẽ mà chỉnh lại)
+const FACE_ORDER: Face[] = ['bau', 'cua', 'tom', 'ca', 'ga', 'nai'];
+
+// Nếu bạn dùng filename thay vì index, có thể làm mảng file:
+const FACE_FILES = {
+    bau: '1.png',
+    cua: '2.png',
+    tom: '3.png',
+    ca: '4.png',
+    ga: '5.png',
+    nai: '6.png',
+} as const;
+
+function faceToIndex(f: Face) {
+    return FACE_ORDER.indexOf(f); // 0..5
+}
+
+function faceToFile(f: Face) {
+    return FACE_FILES[f]; // 'bau.png'...
+}
+
+/**
+ * Tạo chuỗi "quay lắc" cho mỗi viên xí ngầu, kết thúc ở mặt finalFace.
+ * Giống logic slots: pool là mảng các dải frame, phần tử cuối ứng với "kết quả".
+ */
+function buildRollSequencesFiles(
+    finals: [Face, Face, Face],
+    cycles = 3,
+    jitter = [0, 1, 2],
+): string[][] {
+    const N = FACE_ORDER.length; // 6
+
+    return finals.map((finalFace, i) => {
+        const spinLen = cycles * N + jitter[i % jitter.length];
+        const seq: string[] = [];
+
+        for (let k = 0; k < spinLen; k++) {
+            const idx = k % N;
+            seq.push(faceToFile(FACE_ORDER[idx])); // luôn là filename -> string
+        }
+        // kết thúc bằng đúng mặt kết quả
+        seq.push(faceToFile(finalFace));
+        return seq;
+    });
+}
+
+/** Embed Animation cho giai đoạn "đang quay" */
+function buildBauCuaSpinEmbed(pool: (string[] | number[])[]) {
+    return {
+        color: '#ffaa00',
+        title: '🎲 Bầu Cua — Đang lắc…',
+        fields: [
+            {
+                name: '',
+                value: '',
+                inputs: {
+                    id: 'baucua',
+                    type: EMessageComponentType.ANIMATION,
+                    component: {
+                        url_image: BAUCUA_SPRITESHEET,
+                        url_position: BAUCUA_POSITIONS,
+                        pool,           // 3 dải cho 3 viên
+                        repeat: 3,      // đi hết chuỗi 1 lần (đã chứa cycles)
+                        duration: 0.35, // tốc độ khung (có thể tinh chỉnh)
+                        width: 512,        // hoặc 600/720…
+                        height: 512,
+                        fit: 'contain',
+                    },
+                },
+            },
+        ],
+    };
+}
+
+/** Embed Animation cho giai đoạn "hiện kết quả" */
+function buildBauCuaResultEmbed(
+    pool: string[][],
+    resultText: string,
+    summaryText: string
+) {
+    return {
+        color: '#22c55e',               // <--
+        title: '🎲 Bầu Cua — Kết quả',
+        description:
+            '```\n' + resultText + '\n-------------------------\n' + summaryText + '\n```',
+        fields: [
+            {
+                name: '',
+                value: '',
+                inputs: {
+                    id: 'baucua',
+                    type: EMessageComponentType.ANIMATION,
+                    component: {
+                        url_image: BAUCUA_SPRITESHEET,
+                        url_position: BAUCUA_POSITIONS,
+                        pool,
+                        repeat: 1,
+                        duration: 0.35,
+                        isResult: 1,
+                        width: 512,
+                        height: 512,
+                        fit: 'contain',
+                    },
+                },
+            },
+        ],
+    };
+}
+
 
 @Command('baucua')
 export class BauCuaTokenCommand extends CommandMessage {
@@ -192,23 +307,73 @@ Ví dụ:  $baucua bet tom ca --bet=1000.
                 }
 
                 case 'start': {
+                    // 1) Chạy game: ra kết quả & quyết toán như cũ
                     const result = await this.game.start(channelId, bankerId, this.token);
+                    // result.result: [Face, Face, Face]
+                    // result.settlements: { userId, net }[]
+                    // result.bankerDelta: number
 
-                    const lines = (await Promise.all(result.settlements.map(async s => {
-                        const n = await this.active.getNameOrFetch(channelId, s.userId);
-                        const sign = s.net >= 0 ? '+' : '';
-                        return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
-                    }))).join('\n');
-
+                    // 2) Build text kết quả + quyết toán
+                    const lines = (await Promise.all(
+                        result.settlements.map(async (s) => {
+                            const n = await this.active.getNameOrFetch(channelId, s.userId);
+                            const sign = s.net >= 0 ? '+' : '';
+                            return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
+                        })
+                    )).join('\n');
                     const bankerName = await this.active.getNameOrFetch(channelId, bankerId);
-                    const t =
-                        `🎲 Kết quả: ${fmtResult(result.result)}
-Quyết toán (net):
-${lines}
--------------------------
-💼 Nhà cái ${fmtUserTag(bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+
+                    const resultText = `Kết quả: ${fmtResult(result.result)}`;
+                    const summaryText =
+                        `Quyết toán (net):\n${lines}\n` +
+                        `-------------------------\n` +
+                        `💼 Nhà cái ${fmtUserTag(bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
+
+                    // 3) Tạo chuỗi animation "đang quay" (giống slots.pool)
+                    const pool = buildRollSequencesFiles(result.result, 3, [0, 1, 2]); // 3 vòng
+                    const spinEmbed = buildBauCuaSpinEmbed(pool);
+
+                    // 4) Gửi embed quay
+                    const messageChannel = await this.getChannelMessage(message);
+                    if (!messageChannel) return;
+                    const messBot = await messageChannel.reply({ embed: [spinEmbed] });
+                    if (!messBot) return;
+
+                    // 5) Chuẩn bị message giả BOT để update (y như slots)
+                    const msg: ChannelMessage = {
+                        mode: messBot.mode,
+                        message_id: messBot.message_id,
+                        code: messBot.code,
+                        create_time: messBot.create_time,
+                        update_time: messBot.update_time,
+                        id: messBot.message_id,
+                        clan_id: message.clan_id,
+                        channel_id: message.channel_id,
+                        persistent: messBot.persistence,
+                        channel_label: message.channel_label,
+                        content: {},
+                        sender_id: (process.env.UTILITY_BOT_ID as string) ?? bankerId,
+                    };
+
+
+                    // 6) Sau delay ngắn, update sang embed kết quả (dừng ở frame cuối)
+                    //    Thời gian delay = cycles * frames * duration ~ cảm giác “đủ đã”
+                    const cycles = 3;
+                    const framesPerCycle = FACE_ORDER.length; // 6
+                    const duration = 0.35; // trùng với build*
+                    const safety = 300;    // bù trễ
+                    const delayMs = Math.round(cycles * framesPerCycle * (duration * 1000)) + safety;
+
+                    setTimeout(async () => {
+                        const messageBot = await this.getChannelMessage(msg);
+                        if (!messageBot) return;                           // guard
+                        const resultEmbed = buildBauCuaResultEmbed(pool, resultText, summaryText);
+                        await messageBot.update({ embed: [resultEmbed] });
+                    }, delayMs);
+
+                    return;
                 }
+
 
                 case 'status': {
                     const st = this.game.status(channelId);
