@@ -3,89 +3,106 @@ import { Command } from 'src/bot/base/commandRegister.decorator';
 import { CommandMessage } from 'src/bot/base/command.abstract';
 import { MezonClientService } from 'src/mezon/services/mezon-client.service';
 import { DbTokenPort } from 'src/bot/services/token.memory';
-import { BauCuaGameService, Face, normalizeFace } from 'src/bot/services/baucua.service';
+import {
+  BauCuaGameService,
+  Face,
+  normalizeFace,
+} from 'src/bot/services/baucua.service';
 import { ActiveUsersService } from 'src/bot/services/active-users.service';
 
 type ParsedBet =
-    | { mode: 'uniform'; picks: Face[]; bet: number }
-    | { mode: 'per-face'; wagers: { pick: Face; bet: number }[] };
+  | { mode: 'uniform'; picks: Face[]; bet: number }
+  | { mode: 'per-face'; wagers: { pick: Face; bet: number }[] };
 
 function parseBetArgs(args: string[]): ParsedBet {
-    const CAP = 100_000_000;
-    let uniformBet: number | null = null;
-    const picks: Face[] = [];
-    const perFace = new Map<Face, number>();
+  const CAP = 100_000_000;
+  let uniformBet: number | null = null;
+  const picks: Face[] = [];
+  const perFace = new Map<Face, number>();
 
-    for (const a of args) {
-        if (a.startsWith('--bet=')) {
-            const n = parseInt(a.split('=')[1], 10);
-            if (!isNaN(n) && n > 0) uniformBet = Math.min(n, CAP);
-            continue;
-        }
-
-        const m = a.match(/^(.+?)\s*[:=]\s*(\d+)$/);
-        if (m) {
-            const f = normalizeFace(m[1]);
-            const n = parseInt(m[2], 10);
-            if (f && !isNaN(n) && n > 0) {
-                perFace.set(f, Math.min(n, CAP));
-                continue;
-            }
-        }
-
-        const f = normalizeFace(a);
-        if (f) picks.push(f);
+  for (const a of args) {
+    if (a.startsWith('--bet=')) {
+      const n = parseInt(a.split('=')[1], 10);
+      if (!isNaN(n) && n > 0) uniformBet = Math.min(n, CAP);
+      continue;
     }
 
-    if (perFace.size > 0) {
-        const wagers = Array.from(perFace, ([pick, bet]) => ({ pick, bet }));
-        return { mode: 'per-face', wagers };
+    const m = a.match(/^(.+?)\s*[:=]\s*(\d+)$/);
+    if (m) {
+      const f = normalizeFace(m[1]);
+      const n = parseInt(m[2], 10);
+      if (f && !isNaN(n) && n > 0) {
+        perFace.set(f, Math.min(n, CAP));
+        continue;
+      }
     }
 
-    return { mode: 'uniform', picks, bet: uniformBet ?? 1000 };
+    const f = normalizeFace(a);
+    if (f) picks.push(f);
+  }
+
+  if (perFace.size > 0) {
+    const wagers = Array.from(perFace, ([pick, bet]) => ({ pick, bet }));
+    return { mode: 'per-face', wagers };
+  }
+  return { mode: 'uniform', picks, bet: uniformBet ?? 1000 };
 }
 
 function fmtResult(r: [Face, Face, Face]) {
-    const emo: Record<Face, string> = { bau: '🎍', cua: '🦀', tom: '🦐', ca: '🐟', ga: '🐓', nai: '🦌' };
-    return r.map(f => `${emo[f]} ${f}`).join('  |  ');
+  const emo: Record<Face, string> = {
+    bau: '🎍',
+    cua: '🦀',
+    tom: '🦐',
+    ca: '🐟',
+    ga: '🐓',
+    nai: '🦌',
+  };
+  return r.map((f) => `${emo[f]} ${f}`).join('  |  ');
 }
 
 function fmtUserTag(id: string, name?: string) {
-    return name ? `${name}` : `<@${id}>`;
+  return name ? `${name}` : `<@${id}>`;
 }
 
 @Command('baucua')
 export class BauCuaTokenCommand extends CommandMessage {
-    constructor(
-        clientService: MezonClientService,
-        private game: BauCuaGameService,
-        private token: DbTokenPort,
-        private active: ActiveUsersService,
-    ) {
-        super(clientService);
-    }
+  constructor(
+    clientService: MezonClientService,
+    private game: BauCuaGameService,
+    private token: DbTokenPort,
+    private active: ActiveUsersService,
+  ) {
+    super(clientService);
+  }
 
-    async execute(args: string[], message: ChannelMessage) {
-        const messageChannel = await this.getChannelMessage(message);
-        const sub = (args[0] || '').toLowerCase();
-        const channelId = message.channel_id!;
-        const bankerId = message.sender_id!;
+  async execute(args: string[], message: ChannelMessage) {
+    const messageChannel = await this.getChannelMessage(message);
+    const sub = (args[0] || '').toLowerCase();
+    const channelId = message.channel_id!;
+    const wantsBotHost =
+      (args[0] || '').toLowerCase() === 'host' &&
+      (args.includes('bot') || args.includes('--bot'));
+    const botId = process.env.BOT_ID;
+    const bankerId = wantsBotHost && botId ? botId : message.sender_id!;
 
-        try {
-            switch (sub) {
-                case 'help': {
-                    const t =
-                        `BẦU CUA DÙNG TOKEN — LUẬT & CÁCH CHƠI
+    try {
+      switch (sub) {
+        case 'help': {
+          const t = `BẦU CUA DÙNG TOKEN — LUẬT & CÁCH CHƠI
 
 LỆNH NHANH
 • $baucua host --min=1000 --max=100000 --maxPlayers=10
 → mở bàn, bạn là nhà cái
+• $baucua host bot --min=1000 --max=100000 --maxPlayers=10
+→ mở bàn, bot là nhà cái
 • $baucua bet tom:2000 ca:500                   
 → đặt mỗi cửa một mức tiền (per-face)
 • $baucua bet tom ca --bet=1000                 
 → đặt đều mỗi cửa 1000→ người chơi đặt (1–3 mặt)
 • $baucua start                                                 
 → nhà cái bắt đầu, quay & quyết toán
+• $baucua bet tom ca --bet=1000 --go                 
+→ Khi bot làm nhà cái, người cuối cùng đặt cược sẽ phải thêm --go để bot quay
 • $baucua status                                                
 → xem bàn hiện tại
 • $baucua cancel                                                
@@ -139,140 +156,387 @@ GHI CHÚ
   - BANKER_INSUFFICIENT_FUNDS: Nhà cái không đủ token để chi trả.
   - PLAYER_INSUFFICIENT: Một người chơi không đủ token để tham gia.
   - MAX_PLAYERS_REACHED: Bàn đã đủ số người chơi tối đa.`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
-                case 'host': {
-                    const min = Number(args.find(a => a.startsWith('--min='))?.split('=')[1] ?? 1000);
-                    const max = Number(args.find(a => a.startsWith('--max='))?.split('=')[1] ?? 100000);
-                    const mp = Number(args.find(a => a.startsWith('--maxPlayers='))?.split('=')[1] ?? 10);
-                    this.game.open(channelId, bankerId, {
-                        minBet: isFinite(min) ? min : 1000,
-                        maxBet: isFinite(max) ? max : 100000,
-                        maxPlayers: isFinite(mp) ? Math.max(1, mp) : 10,
-                    });
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
+        case 'host': {
+          const min = Number(
+            args.find((a) => a.startsWith('--min='))?.split('=')[1] ?? 1000,
+          );
+          const max = Number(
+            args.find((a) => a.startsWith('--max='))?.split('=')[1] ?? 100000,
+          );
+          const mp = Number(
+            args.find((a) => a.startsWith('--maxPlayers='))?.split('=')[1] ??
+              10,
+          );
+          if (wantsBotHost && !botId) {
+            const t =
+              'Bạn yêu cầu bot làm nhà cái nhưng `BOT_ID` chưa được cấu hình trên server.';
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
 
-                    const name = await this.active.getNameOrFetch(channelId, bankerId) || `<@${bankerId}>`;
-                    const t = `🧧 Mở bàn bầu cua: nhà cái ${name}
+          this.game.open(channelId, bankerId, {
+            minBet: isFinite(min) ? min : 1000,
+            maxBet: isFinite(max) ? max : 100000,
+            maxPlayers: isFinite(mp) ? Math.max(1, mp) : 10,
+          });
+          const name = wantsBotHost
+            ? 'Bot'
+            : (await this.active.getNameOrFetch(channelId, bankerId)) ||
+              `<@${bankerId}>`;
+          const t = wantsBotHost
+            ? `🤖 Bot đã mở bàn bầu cua!
+Min bet: ${isFinite(min) ? min : 1000} | Max bet: ${isFinite(max) ? max : 100000} | Max players: ${isFinite(mp) ? Math.max(1, mp) : 10}
+Người chơi dùng: $baucua bet ca --bet=1000
+                             $baucua bet tom:2000 ca:500`
+            : `🧧 Mở bàn bầu cua: nhà cái ${name}
 Min bet: ${isFinite(min) ? min : 1000} | Max bet: ${isFinite(max) ? max : 100000} | Max players: ${isFinite(mp) ? Math.max(1, mp) : 10}
 Người chơi dùng: $baucua bet ca --bet=1000
                              $baucua bet tom:2000 ca:500`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
 
-                case 'bet': {
-                    const userId = message.sender_id!;
-                    const parsed = parseBetArgs(args.slice(1));
+        case 'bet': {
+          const userId = message.sender_id!;
+          const proposedMin = args
+            .find((a) => a.startsWith('--min='))
+            ?.split('=')[1];
+          const proposedMax = args
+            .find((a) => a.startsWith('--max='))
+            ?.split('=')[1];
+          const proposedMp = args
+            .find((a) => a.startsWith('--maxPlayers='))
+            ?.split('=')[1];
+          if ((proposedMin || proposedMax) && this.game) {
+            try {
+              const minN = proposedMin ? Number(proposedMin) : undefined;
+              const maxN = proposedMax ? Number(proposedMax) : undefined;
+              const mpN = proposedMp ? Number(proposedMp) : undefined;
+              if (minN != null || maxN != null || mpN != null) {
+                const limits = this.game.setLimits(
+                  channelId,
+                  userId,
+                  minN,
+                  maxN,
+                  mpN,
+                );
+                const t =
+                  `✅ Đề xuất giới hạn đã áp dụng: Min=${limits.minBet} | Max=${limits.maxBet}` +
+                  (mpN ? ` | MaxPlayers=${mpN}` : '');
+                await messageChannel?.reply({
+                  t,
+                  mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+                });
+              }
+            } catch (err: any) {
+              const t = `Không thể thay đổi giới hạn: ${String(err?.message || err)}`;
+              await messageChannel?.reply({
+                t,
+                mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+              });
+            }
+          }
 
-                    if (parsed.mode === 'uniform') {
-                        if (parsed.picks.length < 1 || parsed.picks.length > 3) {
-                            const t = `Bạn cần chọn 1–3 mặt (bau: '🎍'| cua: '🦀'| tom: '🦐'| ca: '🐟'| ga: '🐓'| nai: '🦌').
+          const parsed = parseBetArgs(args.slice(1));
+          const startNow =
+            args.includes('--start') ||
+            args.includes('--go') ||
+            args.includes('--last');
+
+          if (parsed.mode === 'uniform') {
+            if (parsed.picks.length < 1 || parsed.picks.length > 3) {
+              const t = `Bạn cần chọn 1–3 mặt (bau: '🎍'| cua: '🦀'| tom: '🦐'| ca: '🐟'| ga: '🐓'| nai: '🦌').
 Ví dụ:  $baucua bet tom ca --bet=1000.
            $baucua bet tom:2000 ca:500.`;
-                            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                        }
-                        const wagers = parsed.picks.map(pick => ({ pick, bet: parsed.bet }));
-                        await this.game.bet(channelId, userId, wagers, this.token);
+              return messageChannel?.reply({
+                t,
+                mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+              });
+            }
+            const wagers = parsed.picks.map((pick) => ({
+              pick,
+              bet: parsed.bet,
+            }));
+            await this.game.bet(channelId, userId, wagers, this.token);
 
-                        const total = wagers.reduce((s, w) => s + w.bet, 0);
-                        const desc = wagers.map(w => `${w.pick} x ${w.bet}`).join(', ');
-                        const t = `✅ Đặt cược: ${desc}\nTổng đặt: ${total}\nNhà cái dùng $baucua start để bắt đầu`;
-                        return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                    } else {
-                        if (parsed.wagers.length < 1 || parsed.wagers.length > 3) {
-                            const t = 'Bạn cần chọn 1–3 mặt. Ví dụ: $baucua bet tom:2000 ca:500';
-                            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                        }
-                        await this.game.bet(channelId, userId, parsed.wagers, this.token);
+            const total = wagers.reduce((s, w) => s + w.bet, 0);
+            const desc = wagers.map((w) => `${w.pick} x ${w.bet}`).join(', ');
+            const t = `✅ Đặt cược: ${desc}\nTổng đặt: ${total}`;
+            const round = this.game.status(channelId);
+            const currentBankerIsBot = round?.bankerId === botId;
+            if (startNow && currentBankerIsBot) {
+              try {
+                const result = await this.game.start(
+                  channelId,
+                  round!.bankerId,
+                  this.token,
+                );
+                const lines = (
+                  await Promise.all(
+                    result.settlements.map(async (s) => {
+                      const n = await this.active.getNameOrFetch(
+                        channelId,
+                        s.userId,
+                      );
+                      const sign = s.net >= 0 ? '+' : '';
+                      return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
+                    }),
+                  )
+                ).join('\n');
+                const bankerName =
+                  round?.bankerId === botId
+                    ? 'Bot'
+                    : await this.active.getNameOrFetch(
+                        channelId,
+                        round!.bankerId,
+                      );
+                const rt = `${t}\nNhà cái dùng bot để bắt đầu và đã quyết toán\n🎲 Kết quả: ${fmtResult(result.result)}\nQuyết toán (net):\n${lines}\n-------------------------\n💼 Nhà cái ${fmtUserTag(round!.bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
+                return messageChannel?.reply({
+                  t: rt,
+                  mk: [{ type: EMarkdownType.PRE, s: 0, e: rt.length }],
+                });
+              } catch (err: any) {
+                const eMsg = String(err?.message || err);
+                const t2 = `Đặt cược thành công nhưng không thể tự động bắt đầu: ${eMsg}`;
+                return messageChannel?.reply({
+                  t: `${t}\n${t2}`,
+                  mk: [
+                    {
+                      type: EMarkdownType.PRE,
+                      s: 0,
+                      e: (t + '\n' + t2).length,
+                    },
+                  ],
+                });
+              }
+            }
 
-                        const total = parsed.wagers.reduce((s, w) => s + w.bet, 0);
-                        const desc = parsed.wagers.map(w => `${w.pick} x ${w.bet}`).join(', ');
-                        const t = `✅ Đặt cược: ${desc}\nTổng đặt: ${total}\nNhà cái dùng $baucua start để bắt đầu`;
-                        return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                    }
-                }
+            const hint = '\nNhà cái dùng $baucua start để bắt đầu';
+            return messageChannel?.reply({
+              t: t + hint,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: (t + hint).length }],
+            });
+          } else {
+            if (parsed.wagers.length < 1 || parsed.wagers.length > 3) {
+              const t =
+                'Bạn cần chọn 1–3 mặt. Ví dụ: $baucua bet tom:2000 ca:500';
+              return messageChannel?.reply({
+                t,
+                mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+              });
+            }
+            await this.game.bet(channelId, userId, parsed.wagers, this.token);
 
-                case 'start': {
-                    const result = await this.game.start(channelId, bankerId, this.token);
+            const total = parsed.wagers.reduce((s, w) => s + w.bet, 0);
+            const desc = parsed.wagers
+              .map((w) => `${w.pick} x ${w.bet}`)
+              .join(', ');
+            const t = `✅ Đặt cược: ${desc}\nTổng đặt: ${total}`;
+            const round = this.game.status(channelId);
+            const currentBankerIsBot = round?.bankerId === botId;
+            if (startNow && currentBankerIsBot) {
+              try {
+                const result = await this.game.start(
+                  channelId,
+                  round!.bankerId,
+                  this.token,
+                );
+                const lines = (
+                  await Promise.all(
+                    result.settlements.map(async (s) => {
+                      const n = await this.active.getNameOrFetch(
+                        channelId,
+                        s.userId,
+                      );
+                      const sign = s.net >= 0 ? '+' : '';
+                      return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
+                    }),
+                  )
+                ).join('\n');
+                const bankerName =
+                  round?.bankerId === botId
+                    ? 'Bot'
+                    : await this.active.getNameOrFetch(
+                        channelId,
+                        round!.bankerId,
+                      );
+                const rt = `${t}\nNhà cái dùng bot để bắt đầu và đã quyết toán\n🎲 Kết quả: ${fmtResult(result.result)}\nQuyết toán (net):\n${lines}\n-------------------------\n💼 Nhà cái ${fmtUserTag(round!.bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
+                return messageChannel?.reply({
+                  t: rt,
+                  mk: [{ type: EMarkdownType.PRE, s: 0, e: rt.length }],
+                });
+              } catch (err: any) {
+                const eMsg = String(err?.message || err);
+                const t2 = `Đặt cược thành công nhưng không thể tự động bắt đầu: ${eMsg}`;
+                return messageChannel?.reply({
+                  t: `${t}\n${t2}`,
+                  mk: [
+                    {
+                      type: EMarkdownType.PRE,
+                      s: 0,
+                      e: (t + '\n' + t2).length,
+                    },
+                  ],
+                });
+              }
+            }
 
-                    const lines = (await Promise.all(result.settlements.map(async s => {
-                        const n = await this.active.getNameOrFetch(channelId, s.userId);
-                        const sign = s.net >= 0 ? '+' : '';
-                        return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
-                    }))).join('\n');
+            const hint = '\nNhà cái dùng $baucua start để bắt đầu';
+            return messageChannel?.reply({
+              t: t + hint,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: (t + hint).length }],
+            });
+          }
+        }
 
-                    const bankerName = await this.active.getNameOrFetch(channelId, bankerId);
-                    const t =
-                        `🎲 Kết quả: ${fmtResult(result.result)}
+        case 'start': {
+          const result = await this.game.start(channelId, bankerId, this.token);
+
+          const lines = (
+            await Promise.all(
+              result.settlements.map(async (s) => {
+                const n = await this.active.getNameOrFetch(channelId, s.userId);
+                const sign = s.net >= 0 ? '+' : '';
+                return `- ${fmtUserTag(s.userId, n)}: ${sign}${s.net}`;
+              }),
+            )
+          ).join('\n');
+
+          const bankerName =
+            bankerId === botId
+              ? 'Bot'
+              : await this.active.getNameOrFetch(channelId, bankerId);
+          const t = `🎲 Kết quả: ${fmtResult(result.result)}
 Quyết toán (net):
 ${lines}
 -------------------------
 💼 Nhà cái ${fmtUserTag(bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
 
-                case 'status': {
-                    const st = this.game.status(channelId);
-                    if (!st) {
-                        const t = 'Chưa có bàn nào. Tạo bằng: $baucua host';
-                        return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                    }
-                    const bankerName = await this.active.getNameOrFetch(channelId, st.bankerId);
-                    const betLines = st.bets.length
-                        ? (await Promise.all(st.bets.map(async b => {
-                            const n = await this.active.getNameOrFetch(channelId, b.userId);
-                            const desc = b.wagers.map(w => `${w.pick} x ${w.bet}`).join(', ');
-                            return `- ${n ?? `<@${b.userId}>`}: ${desc}`;
-                        }))).join('\n')
-                        : '(chưa ai đặt)';
+        case 'status': {
+          const st = this.game.status(channelId);
+          if (!st) {
+            const t = 'Chưa có bàn nào. Tạo bằng: $baucua host';
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+          const bankerName =
+            st.bankerId === botId
+              ? 'Bot'
+              : await this.active.getNameOrFetch(channelId, st.bankerId);
+          const betLines = st.bets.length
+            ? (
+                await Promise.all(
+                  st.bets.map(async (b) => {
+                    const n = await this.active.getNameOrFetch(
+                      channelId,
+                      b.userId,
+                    );
+                    const desc = b.wagers
+                      .map((w) => `${w.pick} x ${w.bet}`)
+                      .join(', ');
+                    return `- ${n ?? `<@${b.userId}>`}: ${desc}`;
+                  }),
+                )
+              ).join('\n')
+            : '(chưa ai đặt)';
 
-                    const t =
-                        `Bàn hiện tại
+          const t = `Bàn hiện tại
 Nhà cái: ${bankerName ?? `<@${st.bankerId}>`}
 Min: ${st.minBet} | Max: ${st.maxBet} | Max players: ${st.maxPlayers}
 Trạng thái: ${st.status}
 Số người chơi: ${st.bets.length}/${st.maxPlayers}
 Cược:
 ${betLines}`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
-
-                case 'cancel': {
-                    this.game.cancel(channelId, bankerId);
-                    const t = '❌ Đã hủy bàn.';
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
-
-                case 'bal': {
-                    const bal = await this.token.getBalance(bankerId);
-                    const t = `Số dư của bạn: ${bal}`;
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
-                default: {
-                    // Gợi ý nhanh
-                    const t = 'Dùng $baucua help để xem hướng dẫn.\nPhổ biến: $baucua host | $baucua bet tom ca --bet=1000 | $baucua start';
-                    return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
-                }
-            }
-        } catch (e: any) {
-            const msg = String(e?.message || e);
-            const map: Record<string, string> = {
-                ROUND_ALREADY_OPEN: 'Đang có bàn mở rồi.',
-                NO_ROUND: 'Chưa có bàn trong kênh.',
-                ONLY_BANKER: 'Chỉ nhà cái mới được thực hiện.',
-                NO_PLAYER: 'Cần ít nhất 1 người chơi mới bắt đầu.',
-                ROUND_LOCKED: 'Bàn đã khoá, không thể đặt thêm.',
-                BANKER_CANNOT_BET: 'Nhà cái không được đặt cược.',
-                PICK_1_TO_3: 'Bạn phải chọn 1–3 mặt.',
-                BET_OUT_OF_RANGE: 'Mức cược nằm ngoài min/max của bàn.',
-                INSUFFICIENT_FUNDS: 'Bạn không đủ token để đặt.',
-                BANKER_INSUFFICIENT_FUNDS: 'Nhà cái không đủ token để chi trả.',
-                PLAYER_INSUFFICIENT: 'Người chơi không đủ token để tham gia.',
-                MAX_PLAYERS_REACHED: 'Bàn đã đủ số người chơi tối đa.',
-            };
-            const t = map[msg] || (msg.startsWith('PLAYER_INSUFFICIENT')
-                ? `Một người chơi không đủ token để tham gia (userId=${msg.split(':')[1]})`
-                : `Lỗi: ${msg}`);
-            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
         }
+
+        case 'cancel': {
+          const st = this.game.status(channelId);
+          if (!st) {
+            const t = 'Chưa có bàn để hủy.';
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+          const isBanker = st.bankerId === message.sender_id;
+          if (!isBanker && st.bankerId !== botId) {
+            const t = 'Chỉ nhà cái mới được hủy bàn.';
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+          this.game.cancel(channelId, st.bankerId);
+          const t = '❌ Đã hủy bàn.';
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
+
+        case 'bal': {
+          const bal = await this.token.getBalance(bankerId);
+          const t = `Số dư của bạn: ${bal}`;
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
+        default: {
+          // Gợi ý nhanh
+          const t =
+            'Dùng $baucua help để xem hướng dẫn.\nPhổ biến: $baucua host | $baucua bet tom ca --bet=1000 | $baucua start';
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      const map: Record<string, string> = {
+        ROUND_ALREADY_OPEN: 'Đang có bàn mở rồi.',
+        NO_ROUND: 'Chưa có bàn trong kênh.',
+        ONLY_BANKER: 'Chỉ nhà cái mới được thực hiện.',
+        NO_PLAYER: 'Cần ít nhất 1 người chơi mới bắt đầu.',
+        ROUND_LOCKED: 'Bàn đã khoá, không thể đặt thêm.',
+        BANKER_CANNOT_BET: 'Nhà cái không được đặt cược.',
+        PICK_1_TO_3: 'Bạn phải chọn 1–3 mặt.',
+        BET_OUT_OF_RANGE: 'Mức cược nằm ngoài min/max của bàn.',
+        INSUFFICIENT_FUNDS: 'Bạn không đủ token để đặt.',
+        BANKER_INSUFFICIENT_FUNDS: 'Nhà cái không đủ token để chi trả.',
+        PLAYER_INSUFFICIENT: 'Người chơi không đủ token để tham gia.',
+        MAX_PLAYERS_REACHED: 'Bàn đã đủ số người chơi tối đa.',
+      };
+      const t =
+        map[msg] ||
+        (msg.startsWith('PLAYER_INSUFFICIENT')
+          ? `Một người chơi không đủ token để tham gia (userId=${msg.split(':')[1]})`
+          : `Lỗi: ${msg}`);
+      return messageChannel?.reply({
+        t,
+        mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+      });
     }
+  }
 }
