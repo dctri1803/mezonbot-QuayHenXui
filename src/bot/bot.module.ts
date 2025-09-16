@@ -31,6 +31,7 @@ import { BauCuaGameService } from './services/baucua.service';
 import { BauCuaTokenCommand } from './commands/games/baucua.command';
 import { RutCommand } from './commands/system/rut.command';
 import { DbTokenPort } from './services/token.memory';
+import { AdminCommand } from './commands/admin/admin.command';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { DbTokenPort } from './services/token.memory';
     BauCuaTokenCommand,
     DbTokenPort,
     RutCommand,
+    AdminCommand,
   ],
   controllers: [],
 })

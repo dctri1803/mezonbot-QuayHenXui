@@ -170,7 +170,7 @@ GHI CHÚ
           );
           const mp = Number(
             args.find((a) => a.startsWith('--maxPlayers='))?.split('=')[1] ??
-              10,
+            10,
           );
           if (wantsBotHost && !botId) {
             const t =
@@ -189,7 +189,7 @@ GHI CHÚ
           const name = wantsBotHost
             ? 'Bot'
             : (await this.active.getNameOrFetch(channelId, bankerId)) ||
-              `<@${bankerId}>`;
+            `<@${bankerId}>`;
           const t = wantsBotHost
             ? `🤖 Bot đã mở bàn bầu cua!
 Min bet: ${isFinite(min) ? min : 1000} | Max bet: ${isFinite(max) ? max : 100000} | Max players: ${isFinite(mp) ? Math.max(1, mp) : 10}
@@ -296,9 +296,9 @@ Ví dụ:  $baucua bet tom ca --bet=1000.
                   round?.bankerId === botId
                     ? 'Bot'
                     : await this.active.getNameOrFetch(
-                        channelId,
-                        round!.bankerId,
-                      );
+                      channelId,
+                      round!.bankerId,
+                    );
                 const rt = `${t}\nNhà cái dùng bot để bắt đầu và đã quyết toán\n🎲 Kết quả: ${fmtResult(result.result)}\nQuyết toán (net):\n${lines}\n-------------------------\n💼 Nhà cái ${fmtUserTag(round!.bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
                 return messageChannel?.reply({
                   t: rt,
@@ -366,9 +366,9 @@ Ví dụ:  $baucua bet tom ca --bet=1000.
                   round?.bankerId === botId
                     ? 'Bot'
                     : await this.active.getNameOrFetch(
-                        channelId,
-                        round!.bankerId,
-                      );
+                      channelId,
+                      round!.bankerId,
+                    );
                 const rt = `${t}\nNhà cái dùng bot để bắt đầu và đã quyết toán\n🎲 Kết quả: ${fmtResult(result.result)}\nQuyết toán (net):\n${lines}\n-------------------------\n💼 Nhà cái ${fmtUserTag(round!.bankerId, bankerName)}: ${result.bankerDelta >= 0 ? '+' : ''}${result.bankerDelta}`;
                 return messageChannel?.reply({
                   t: rt,
@@ -441,19 +441,19 @@ ${lines}
               : await this.active.getNameOrFetch(channelId, st.bankerId);
           const betLines = st.bets.length
             ? (
-                await Promise.all(
-                  st.bets.map(async (b) => {
-                    const n = await this.active.getNameOrFetch(
-                      channelId,
-                      b.userId,
-                    );
-                    const desc = b.wagers
-                      .map((w) => `${w.pick} x ${w.bet}`)
-                      .join(', ');
-                    return `- ${n ?? `<@${b.userId}>`}: ${desc}`;
-                  }),
-                )
-              ).join('\n')
+              await Promise.all(
+                st.bets.map(async (b) => {
+                  const n = await this.active.getNameOrFetch(
+                    channelId,
+                    b.userId,
+                  );
+                  const desc = b.wagers
+                    .map((w) => `${w.pick} x ${w.bet}`)
+                    .join(', ');
+                  return `- ${n ?? `<@${b.userId}>`}: ${desc}`;
+                }),
+              )
+            ).join('\n')
             : '(chưa ai đặt)';
 
           const t = `Bàn hiện tại
@@ -495,13 +495,146 @@ ${betLines}`;
         }
 
         case 'bal': {
-          const bal = await this.token.getBalance(bankerId);
-          const t = `Số dư của bạn: ${bal}`;
+          const target = (args[1] || '').toLowerCase() === 'bot'
+            ? (process.env.BOT_ID || message.sender_id!)
+            : message.sender_id!;
+          const bal = await this.token.getBalance(target);
+          const label = (args[1] || '').toLowerCase() === 'bot' ? 'Bot' : 'bạn';
+          const t = `💸Số dư của ${label}: ${Math.floor(bal).toLocaleString('vi-VN')}đ`;
           return messageChannel?.reply({
             t,
             mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
           });
         }
+
+        case 'remit': {
+          const messageChannel = await this.getChannelMessage(message);
+          const adminId = process.env.BOT_ADMIN_ID || process.env.ADMIN_ID;
+          const botId = process.env.BOT_ID;
+
+          if (!botId || !adminId) {
+            const t = 'Thiếu cấu hình môi trường: cần BOT_ID và BOT_ADMIN_ID (hoặc ADMIN_ID).';
+            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+          }
+
+          // Chỉ admin được phép gọi
+          const callerId = message.sender_id!;
+          if (callerId !== adminId) {
+            const t = 'Chỉ admin mới được phép thực hiện remit.';
+            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+          }
+
+          // Cú pháp: $baucua remit [all|<amount>] [--keep=<number>]
+          const arg1 = (args[1] || '').toLowerCase();
+          const keepRaw = args.find(a => a.startsWith('--keep='))?.split('=')[1];
+          const keep = Math.max(0, Math.floor(Number(keepRaw ?? '0')) || 0);
+
+          // Lấy số dư hiện tại của bot
+          const botBal = Math.floor(await this.token.getBalance(botId));
+
+          if (!arg1 || (arg1 !== 'all' && isNaN(parseInt(arg1, 10)))) {
+            const t = `Cách dùng:
+- $baucua remit all [--keep=0]         → rút toàn bộ số dư bot về admin, chừa lại 'keep'
+- $baucua remit <amount>                → rút đúng số tiền
+Số dư bot hiện tại: ${botBal.toLocaleString('vi-VN')}đ`;
+            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+          }
+
+          let amount = 0;
+          if (arg1 === 'all') {
+            amount = Math.max(0, botBal - keep);
+          } else {
+            amount = Math.floor(parseInt(arg1, 10));
+          }
+
+          if (amount <= 0) {
+            const t = `Số tiền remit không hợp lệ hoặc không đủ sau khi trừ keep. Số dư bot: ${botBal.toLocaleString('vi-VN')}đ`;
+            return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+          }
+
+          // Nếu amount > botBal, hạ xuống bằng botBal để tránh lỗi
+          if (amount > botBal) amount = botBal;
+
+          // Thực hiện chuyển
+          await this.token.transfer(botId, adminId, amount, 'BauCua: manual remit to admin');
+
+          const adminName = await this.active.getNameOrFetch(message.channel_id!, adminId);
+          const t = `✅ Remit thành công: +${amount.toLocaleString('vi-VN')}đ → admin ${fmtUserTag(adminId, adminName)}
+Số dư bot trước: ${botBal.toLocaleString('vi-VN')}đ
+Số dư bot sau:  ${(botBal - amount).toLocaleString('vi-VN')}đ`;
+          return messageChannel?.reply({ t, mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }] });
+        }
+
+        case 'fund': {
+          const messageChannel = await this.getChannelMessage(message);
+          const adminId = process.env.BOT_ADMIN_ID || process.env.ADMIN_ID;
+          const botId = process.env.BOT_ID;
+
+          if (!botId || !adminId) {
+            const t = 'Thiếu cấu hình môi trường: cần BOT_ID và BOT_ADMIN_ID (hoặc ADMIN_ID).';
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+
+          // Chỉ admin được phép gọi
+          const callerId = message.sender_id!;
+          if (callerId !== adminId) {
+            const t = 'Chỉ admin mới được phép nạp tiền cho bot.';
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+
+          // Cú pháp bắt buộc: $baucua fund <amount>
+          const amountStr = args[1] || '';
+          const isNumeric = /^[0-9]+$/.test(amountStr);
+          const amount = Math.floor(Number(amountStr));
+
+          // Lấy số dư hiện tại (trước khi chuyển) để hiển thị
+          const [adminBalRaw, botBalRaw] = await Promise.all([
+            this.token.getBalance(adminId),
+            this.token.getBalance(botId),
+          ]);
+          const adminBal = Math.floor(adminBalRaw);
+          const botBal = Math.floor(botBalRaw);
+
+          if (!isNumeric || amount <= 0) {
+            const t = `Cách dùng:
+$ baucua fund 50000   ← nạp đúng 50.000 vào bot
+
+Số dư admin hiện tại: ${adminBal.toLocaleString('vi-VN')}đ
+Số dư bot hiện tại:   ${botBal.toLocaleString('vi-VN')}đ`;
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+
+          if (amount > adminBal) {
+            const t = `Số dư admin không đủ để nạp ${amount.toLocaleString('vi-VN')}đ.
+Số dư admin: ${adminBal.toLocaleString('vi-VN')}đ`;
+            return messageChannel?.reply({
+              t,
+              mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+            });
+          }
+
+          await this.token.transfer(adminId, botId, amount, 'BauCua: manual fund bot from admin');
+
+          const t = `✅ Nạp thành công: +${amount.toLocaleString('vi-VN')}đ → bot
+Số dư admin trước: ${adminBal.toLocaleString('vi-VN')}đ
+Số dư admin sau:   ${(adminBal - amount).toLocaleString('vi-VN')}đ
+Số dư bot trước:   ${botBal.toLocaleString('vi-VN')}đ
+Số dư bot sau:     ${(botBal + amount).toLocaleString('vi-VN')}đ`;
+          return messageChannel?.reply({
+            t,
+            mk: [{ type: EMarkdownType.PRE, s: 0, e: t.length }],
+          });
+        }
+
         default: {
           // Gợi ý nhanh
           const t =
